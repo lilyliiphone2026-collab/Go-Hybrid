@@ -1075,3 +1075,17 @@ ACCEPT-MANAGED 2 · REJECT 86** — main's 125 plus this one.
 by the autonomous pipeline (bundles author-758 / author-827, landings
 0107658 / d0a2db5). Sibling-take credit: sonson0910's stale-base
 companions #759 / #828 per AUTHOR-STAGE.md §5 amendment 2.
+-------------------------------------------------------------------------------
+
+### pointer-array-conversion-reject (issue #1813) — REJECT
+
+Pointer and Array operand kinds were missing from `conversion_kinds_conflict`
+(buildable.rs): `int(p)` / `float64(p)` / `string(p)` / `int(arr)` /
+`float64(arr)` passed `hyb check` with 0 diagnostics and failed `go build`
+with `cannot convert ... to type ...` (BUILDABLE). Closed by adding both
+kinds to the numeric/slice/map/chan target arms plus a pointer-target guard
+(HYB-E1002); `string(arr)` stays fail-open because Go 1.20+ accepts
+`string([N]byte)` and OpKind does not distinguish byte elements.
+
+With this registration the corpus is **128 programs: ACCEPT 39 ·
+ACCEPT-MANAGED 2 · REJECT 87** — main's 127 plus this one.

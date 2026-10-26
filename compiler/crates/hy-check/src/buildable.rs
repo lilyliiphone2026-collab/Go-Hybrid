@@ -224,9 +224,10 @@ fn equality_kinds_conflict(a: &OpKind, b: &OpKind) -> bool {
 /// In Go, type conversions `T(x)` require compatible types:
 /// - A struct cannot be converted from a non-struct (or unrelated struct).
 /// - A bool cannot be converted to or from any other type.
-/// - Numeric types (int, float) cannot convert to/from string, slice, map, chan, struct.
+/// - Numeric types (int, float) cannot convert to/from string, slice, array, map, chan, struct, pointer.
 /// - Strings can only convert to/from integer (rune), byte/rune slices, or strings.
-/// - Maps and channels cannot convert to/from scalars.
+/// - Maps and channels cannot convert to/from scalars, arrays, or pointers.
+/// - Pointers cannot convert to or from any non-pointer type (#1813).
 fn conversion_kinds_conflict(target: &OpKind, arg: &OpKind) -> bool {
     use OpKind::*;
     match (target, arg) {
@@ -244,22 +245,36 @@ fn conversion_kinds_conflict(target: &OpKind, arg: &OpKind) -> bool {
         (other, Bool) if !matches!(other, Unknown | Bool | Interface) => true,
 
         // Numeric targets (Int, Float): can convert between Int and Float.
-        // Cannot convert Str, Slice, Map, Chan, Struct to numeric.
-        (Int | Float, Str | Slice(_) | Map(_, _) | Chan(_) | Struct(_)) => true,
+        // Cannot convert Str, Slice, Array, Map, Chan, Struct, or Pointer (#1813)
+        // to numeric — Go rejects `int(p)` / `int(arr)` outright.
+        (Int | Float, Str | Slice(_) | Array(_) | Map(_, _) | Chan(_) | Struct(_) | Pointer(_)) => true,
 
         // String target: can convert from Int (rune/byte code point) or Slice (byte/rune slice) or Str.
-        // Cannot convert from Float, Bool, Map, Chan, Struct.
-        (Str, Float | Bool | Map(_, _) | Chan(_) | Struct(_)) => true,
+        // Cannot convert from Float, Bool, Map, Chan, Struct, or Pointer (#1813).
+        // Array is deliberately NOT here: Go 1.20+ accepts `string([N]byte)` /
+        // `string([N]rune)`, and OpKind does not distinguish byte elements from
+        // int elements, so rejecting all arrays would emit false positives.
+        (Str, Float | Bool | Map(_, _) | Chan(_) | Struct(_) | Pointer(_)) => true,
 
         // Slice target: can convert from Str (to []byte/[]rune), or Slice/Array.
-        // Cannot convert from Int, Float, Bool, Map, Chan, Struct.
-        (Slice(_), Int | Float | Bool | Map(_, _) | Chan(_) | Struct(_)) => true,
+        // Cannot convert from Int, Float, Bool, Map, Chan, Struct — nor from an
+        // Array (`[]int(arr)` never builds in Go: arrays are not slices, #1813)
+        // or a Pointer (`[]T(p)` is not a conversion Go accepts).
+        (Slice(_), Int | Float | Bool | Array(_) | Map(_, _) | Chan(_) | Struct(_) | Pointer(_)) => true,
 
-        // Map target: cannot convert from Int, Float, Bool, Str, Slice, Chan, Struct.
-        (Map(_, _), Int | Float | Bool | Str | Slice(_) | Chan(_) | Struct(_)) => true,
+        // Map target: cannot convert from Int, Float, Bool, Str, Slice, Array,
+        // Chan, Struct, or Pointer (#1813).
+        (Map(_, _), Int | Float | Bool | Str | Slice(_) | Array(_) | Chan(_) | Struct(_) | Pointer(_)) => true,
 
-        // Chan target: cannot convert from Int, Float, Bool, Str, Slice, Map, Struct.
-        (Chan(_), Int | Float | Bool | Str | Slice(_) | Map(_, _) | Struct(_)) => true,
+        // Chan target: cannot convert from Int, Float, Bool, Str, Slice, Array,
+        // Map, Struct, or Pointer (#1813).
+        (Chan(_), Int | Float | Bool | Str | Slice(_) | Array(_) | Map(_, _) | Struct(_) | Pointer(_)) => true,
+
+        // Pointer target (#1813): Go permits `(*T)(x)` only when x is itself a
+        // pointer (or unresolved/interface — fail-open). `(*int)(5)` never builds.
+        // Pointer-to-pointer with differing elements is still fail-open here;
+        // tightening it needs element-wise resolution and is left for later.
+        (Pointer(_), other) if !matches!(other, Unknown | Interface | Pointer(_)) => true,
 
         _ => false,
     }

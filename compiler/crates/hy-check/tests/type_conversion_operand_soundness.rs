@@ -125,3 +125,63 @@ fn valid_interface_conversion_accepts() {
     let r = check(src);
     assert_eq!(r.verdict, Verdict::Accept, "expected accept, got diagnostics: {:?}", r.diagnostics);
 }
+
+// ---- #1813: Pointer and Array operand kinds were missing from
+// conversion_kinds_conflict, so `int(p)` / `int(arr)` passed hyb check with
+// 0 diagnostics and failed `go build` with `cannot convert ... to type ...`.
+
+#[test]
+fn int_conversion_from_pointer_rejects_e1002() {
+    let src = "fn main() {\n    x := 42\n    p := &x\n    _ = int(p)\n}\n";
+    let r = check(src);
+    assert_eq!(r.verdict, Verdict::Reject);
+    assert!(error_codes(&r).contains(&"HYB-E1002".to_string()));
+}
+
+#[test]
+fn float_conversion_from_pointer_rejects_e1002() {
+    let src = "fn main() {\n    x := 42\n    p := &x\n    _ = float64(p)\n}\n";
+    let r = check(src);
+    assert_eq!(r.verdict, Verdict::Reject);
+    assert!(error_codes(&r).contains(&"HYB-E1002".to_string()));
+}
+
+#[test]
+fn string_conversion_from_pointer_rejects_e1002() {
+    let src = "fn main() {\n    x := 42\n    p := &x\n    _ = string(p)\n}\n";
+    let r = check(src);
+    assert_eq!(r.verdict, Verdict::Reject);
+    assert!(error_codes(&r).contains(&"HYB-E1002".to_string()));
+}
+
+#[test]
+fn int_conversion_from_array_rejects_e1002() {
+    let src = "fn main() {\n    var arr [4]int\n    _ = int(arr)\n}\n";
+    let r = check(src);
+    assert_eq!(r.verdict, Verdict::Reject);
+    assert!(error_codes(&r).contains(&"HYB-E1002".to_string()));
+}
+
+#[test]
+fn string_conversion_from_array_to_numeric_target_rejects_e1002() {
+    // float64(arr) is rejected; string(arr) stays fail-open (see below).
+    let src = "fn main() {\n    var arr [4]int\n    _ = float64(arr)\n}\n";
+    let r = check(src);
+    assert_eq!(r.verdict, Verdict::Reject);
+    assert!(error_codes(&r).contains(&"HYB-E1002".to_string()));
+}
+
+#[test]
+fn string_from_array_stays_fail_open() {
+    // Go 1.20+ accepts `string([N]byte)`, and OpKind does not distinguish
+    // byte elements from int elements — so array-to-string stays fail-open
+    // rather than emitting false positives on legal byte-array conversions.
+    let src = "fn main() {\n    var arr [4]int\n    _ = string(arr)\n}\n";
+    let r = check(src);
+    assert_eq!(r.verdict, Verdict::Accept, "expected accept, got diagnostics: {:?}", r.diagnostics);
+}
+
+// Note on the Pointer-target arm of conversion_kinds_conflict (#1813): it is
+// purely defensive. Neither `(*int)(5)` nor `*int(p)` parses — the .hy grammar
+// rejects `*` in expression position, so a pointer type conversion is not
+// expressible in source and the arm has no reachable test.
