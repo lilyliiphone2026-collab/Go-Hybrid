@@ -22,7 +22,8 @@
 // the receive side `v := <-deadline` stays ACCEPT and is covered by example
 // 04's deadline pattern). ----
 
-// EXPECTED-VERDICT: REJECT HYB-E3007
+// EXPECTED-VERDICT: REJECT A1c
+// (the send-target classification — #77; the pinned HYB code is E3007)
 
 fn main() {
     deadline := time.after(time.seconds(5))
