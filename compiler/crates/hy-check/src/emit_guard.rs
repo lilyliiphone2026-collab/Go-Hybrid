@@ -1163,6 +1163,16 @@ impl<'a> Checker<'a> {
                 st.unwrap_or(&empty_st),
                 len,
             );
+            // Issue #2102: mirror value-position builtin-argument validation
+            // onto the array-length site as well. `check_type_ref_array_lens`
+            // already routes every `TypeRef` array length through this
+            // function (top-level decls, struct fields, type aliases, local
+            // annotations, composite literals, casts), so validating the
+            // length expression's builtin calls here closes the gap for
+            // `[len(1)]int`-style programs in one place. Without it, invalid
+            // builtins in length position pass `hyb check` with 0 diagnostics
+            // and the emitted Go fails `go build` (Row 13 BUILDABLE).
+            self.check_expr_builtin_args(len);
         }
         // 1) A constant integer expression: must be non-negative.
         let direct_or_folded = const_int_value(len).or_else(|| {
