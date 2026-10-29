@@ -1,0 +1,60 @@
+name: probe
+
+# Cloud build+check harness for bug-hunting. Does NOT touch upstream files.
+# Push to the `probe` branch in this fork to compile hyb and run the .hy probes.
+
+on:
+  push:
+    branches: [probe]
+    paths:
+      - 'probes/**'
+      - '.github/workflows/probe.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: compiler
+
+      - name: Build hyb
+        run: |
+          cd compiler
+          cargo build -p hyb 2>&1 | tail -5
+          ls -la target/debug/hyb
+
+      - name: Tool sanity (known corpus cases)
+        run: |
+          HYB=compiler/target/debug/hyb
+          for f in tests/checker-corpus/01-shared-map-across-tasks.hy \
+                   tests/checker-corpus/15-fanin-per-task-state.hy; do
+            echo "===== $f"
+            $HYB check "$f" 2>&1 | tail -6
+            echo "EXIT=$?"
+          done
+
+      - name: Run probes
+        if: always()
+        run: |
+          HYB=compiler/target/debug/hyb
+          shopt -s nullglob
+          for f in probes/*.hy; do
+            echo "########## $f"
+            echo "--- header:"
+            grep -i "EXPECTED-VERDICT\|^// PROBE" "$f" | head -3
+            echo "--- check:"
+            set +e
+            out=$($HYB check "$f" 2>&1)
+            rc=$?
+            set -e
+            echo "$out" | tail -12
+            echo "*** EXIT=$rc  (ACCEPT=0 / REJECT!=0)"
+            echo
+          done
